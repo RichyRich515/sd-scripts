@@ -5,8 +5,8 @@ ftfy~=6.3.1
 opencv-python~=4.13.0.92
 einops~=0.8.2
 bitsandbytes~=0.49.2
-triton~=3.3.1; platform_system == "Linux"
-triton-windows~=3.3.1.post21; platform_system == "Windows"
+triton~=3.8.0; platform_system == "Linux"
+triton-windows~=3.8.0.post29; platform_system == "Windows"
 lion-pytorch~=0.2.5
 schedulefree~=1.4.1
 pytorch_optimizer==3.10.1
