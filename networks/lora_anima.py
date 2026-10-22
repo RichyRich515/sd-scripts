@@ -274,8 +274,11 @@ def create_network(
     text_encoders: list,
     unet,
     neuron_dropout: Optional[float] = None,
+    network_class: Optional[type] = None,
     **kwargs,
 ):
+    if network_class is None:
+        network_class = LoRANetwork
     if network_dim is None:
         network_dim = 4
     if network_alpha is None:
@@ -295,7 +298,7 @@ def create_network(
             exclude_patterns = [exclude_patterns]
 
     # add default exclude patterns
-    exclude_patterns.append(r".*(_modulation|_norm|_embedder|final_layer).*")
+    exclude_patterns.append(network_class.DEFAULT_EXCLUDE_PATTERN)
 
     # regular expression for module selection: exclude and include
     include_patterns = kwargs.get("include_patterns", None)
@@ -351,7 +354,7 @@ def create_network(
     else:
         reg_dims = None
 
-    network = LoRANetwork(
+    network = network_class(
         text_encoders,
         unet,
         multiplier=multiplier,
@@ -380,7 +383,11 @@ def create_network(
     return network
 
 
-def create_network_from_weights(multiplier, file, ae, text_encoders, unet, weights_sd=None, for_inference=False, **kwargs):
+def create_network_from_weights(
+    multiplier, file, ae, text_encoders, unet, weights_sd=None, for_inference=False, network_class: Optional[type] = None, **kwargs
+):
+    if network_class is None:
+        network_class = LoRANetwork
     if weights_sd is None:
         if os.path.splitext(file)[1] == ".safetensors":
             from safetensors.torch import load_file
@@ -402,12 +409,12 @@ def create_network_from_weights(multiplier, file, ae, text_encoders, unet, weigh
             dim = value.size()[0]
             modules_dim[lora_name] = dim
 
-        if "llm_adapter" in lora_name:
+        if network_class.ADAPTER_LORA_NAME_MARKER in lora_name:
             train_llm_adapter = True
 
     module_class = LoRAInfModule if for_inference else LoRAModule
 
-    network = LoRANetwork(
+    network = network_class(
         text_encoders,
         unet,
         multiplier=multiplier,
@@ -429,6 +436,10 @@ class LoRANetwork(torch.nn.Module):
 
     LORA_PREFIX_ANIMA = "lora_unet"  # ComfyUI compatible
     LORA_PREFIX_TEXT_ENCODER = "lora_te"  # Qwen3
+
+    # overridable by subclasses for other DiTs (e.g. networks.lora_moss)
+    DEFAULT_EXCLUDE_PATTERN = r".*(_modulation|_norm|_embedder|final_layer).*"
+    ADAPTER_LORA_NAME_MARKER = "llm_adapter"
 
     def __init__(
         self,
@@ -578,15 +589,15 @@ class LoRANetwork(torch.nn.Module):
                 if text_encoder is None:
                     continue
                 logger.info(f"create LoRA for Text Encoder {i+1}:")
-                te_loras, te_skipped = create_modules(False, i, text_encoder, LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
+                te_loras, te_skipped = create_modules(False, i, text_encoder, self.TEXT_ENCODER_TARGET_REPLACE_MODULE)
                 logger.info(f"create LoRA for Text Encoder {i+1}: {len(te_loras)} modules.")
                 self.text_encoder_loras.extend(te_loras)
                 skipped_te += te_skipped
 
         # Create LoRA for DiT blocks
-        target_modules = list(LoRANetwork.ANIMA_TARGET_REPLACE_MODULE)
+        target_modules = list(self.ANIMA_TARGET_REPLACE_MODULE)
         if train_llm_adapter:
-            target_modules.extend(LoRANetwork.ANIMA_ADAPTER_TARGET_REPLACE_MODULE)
+            target_modules.extend(self.ANIMA_ADAPTER_TARGET_REPLACE_MODULE)
 
         self.unet_loras: List[Union[LoRAModule, LoRAInfModule]]
         self.unet_loras, skipped_un = create_modules(True, None, unet, target_modules)
@@ -648,9 +659,9 @@ class LoRANetwork(torch.nn.Module):
     def merge_to(self, text_encoders, unet, weights_sd, dtype=None, device=None):
         apply_text_encoder = apply_unet = False
         for key in weights_sd.keys():
-            if key.startswith(LoRANetwork.LORA_PREFIX_TEXT_ENCODER):
+            if key.startswith(self.LORA_PREFIX_TEXT_ENCODER):
                 apply_text_encoder = True
-            elif key.startswith(LoRANetwork.LORA_PREFIX_ANIMA):
+            elif key.startswith(self.LORA_PREFIX_ANIMA):
                 apply_unet = True
 
         if apply_text_encoder:

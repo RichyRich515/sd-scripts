@@ -25,3 +25,6 @@ tests/test_output_*/
 tests/downloaded_data/
 tests/mask_viz/
 /plans
+
+# transformers 5 overlay for the MOSS-Image text encoder worker
+moss_te_deps/
